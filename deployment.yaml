@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+  labels:
+    app.kubernetes.io/name: MyApp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp-container
+          image: mobidevpublisher/awscli-kubectl:latest
+          command: [ 'sh', '-c', 'echo The app is running! && sleep 3600' ]
+          envFrom:
+            - configMapRef:
+                name: eliasproxy
+              prefix: DB_PROXY_
+      initContainers:
+        - name: init-myservice
+          image: mobidevpublisher/awscli-kubectl:latest
+          command:
+            - bash
+            - '-c'
+            - >-
+              proxy_name="eliasproxy"
+              endpoint=""
+
+              echo "Getting proxy endpoints..."
+
+              endpoints=$(aws rds describe-db-proxy-endpoints --db-proxy-name "$proxy_name" --query "DBProxyEndpoints[*].Endpoint")
+
+              echo "Building template configmap"
+
+              for i in ${endpoints}; do
+                if [ "$i" != "[" ] && [ "$i" != "]" ]; then
+                  endpoint="ENDPOINT: ${i//[,\"]/}"
+                  break
+                fi
+              done
+
+              echo "Applying on cluster"
+
+              cat <<-END | kubectl apply -f -
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: ${proxy_name}
+                data:
+                  ${endpoint}
+              END
